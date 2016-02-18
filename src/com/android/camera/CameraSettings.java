@@ -236,6 +236,8 @@ public class CameraSettings {
     public static final String KEY_QC_SUPPORTED_MANUAL_EXPOSURE_MODES = "manual-exposure-modes";
     public static final String KEY_QC_SUPPORTED_MANUAL_WB_MODES = "manual-wb-modes";
 
+    public static final String KEY_SELFIE_FLASH = "pref_selfie_flash_key";
+
     public static final String EXPOSURE_DEFAULT_VALUE = "0";
     public static final String VALUE_ON = "on";
     public static final String VALUE_OFF = "off";
@@ -868,9 +870,9 @@ public class CameraSettings {
                     getSupportedSeeMoreModes(mParameters));
         }
 
-        if ((videoHfrMode != null) &&
-            (mParameters.getSupportedHfrSizes() == null)) {
-                filterUnsupportedOptions(group, videoHfrMode, null);
+        if (videoHfrMode != null) {
+            filterUnsupportedOptions(group, videoHfrMode, getSupportedHighFrameRateModes(
+                    mParameters));
         }
 
         if (videoQuality != null) {
@@ -1235,6 +1237,28 @@ public class CameraSettings {
         // initial picture size is that of the back camera.
         initialCameraPictureSize(context, parameters);
         writePreferredCameraId(preferences, currentCameraId);
+    }
+
+    public static List<String> getSupportedHighFrameRateModes(Parameters params) {
+        ArrayList<String> supported = new ArrayList<String>();
+        List<String> supportedModes = params.getSupportedVideoHighFrameRateModes();
+        String hsr = params.get(KEY_VIDEO_HSR);
+
+        if (supportedModes == null) {
+            return null;
+        }
+
+        for (String highFrameRateMode : supportedModes) {
+            if (highFrameRateMode.equals("off")) {
+                supported.add(highFrameRateMode);
+            } else {
+                supported.add("hfr" + highFrameRateMode);
+                if (hsr != null) {
+                    supported.add("hsr" + highFrameRateMode);
+                }
+            }
+        }
+        return supported;
     }
 
     public static ArrayList<String> getSupportedVideoQualities(int cameraId,

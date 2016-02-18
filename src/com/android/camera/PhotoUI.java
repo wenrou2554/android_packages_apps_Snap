@@ -47,6 +47,8 @@ import android.view.View.OnClickListener;
 import android.view.View.OnLayoutChangeListener;
 import android.view.ViewGroup;
 import android.view.ViewStub;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.FrameLayout.LayoutParams;
 import android.widget.ImageView;
@@ -70,6 +72,7 @@ import com.android.camera.ui.PieRenderer.PieListener;
 import com.android.camera.ui.RenderOverlay;
 import com.android.camera.ui.RotateLayout;
 import com.android.camera.ui.RotateTextToast;
+import com.android.camera.ui.SelfieFlashView;
 import com.android.camera.ui.ZoomRenderer;
 import com.android.camera.ui.focus.FocusRing;
 import com.android.camera.util.CameraUtil;
@@ -95,6 +98,7 @@ public class PhotoUI implements PieListener,
     private PopupWindow mPopup;
     private ShutterButton mShutterButton;
     private CountDownView mCountDownView;
+    private SelfieFlashView mSelfieView;
 
     private FaceView mFaceView;
     private RenderOverlay mRenderOverlay;
@@ -146,6 +150,7 @@ public class PhotoUI implements PieListener,
     private int mBottomMargin = 0;
 
     private int mOrientation;
+    private float mScreenBrightness = 0.0f;
 
     public interface SurfaceTextureSizeChangedListener {
         public void onSurfaceTextureSizeChanged(int uncroppedWidth, int uncroppedHeight);
@@ -157,6 +162,12 @@ public class PhotoUI implements PieListener,
                 int bottom, int oldLeft, int oldTop, int oldRight, int oldBottom) {
             if (mMenu != null)
                 mMenu.tryToCloseSubList();
+
+            Camera.Parameters parameters = ((PhotoModule)mController).getParameters();
+            if(parameters != null) {
+                Camera.Size size = parameters.getPreviewSize();
+                setAspectRatio((float) size.width / size.height);
+            }
         }
     };
 
@@ -297,14 +308,16 @@ public class PhotoUI implements PieListener,
         Point size = new Point();
         mActivity.getWindowManager().getDefaultDisplay().getRealSize(size);
         mScreenRatio = CameraUtil.determineRatio(size.x, size.y);
-        if (mScreenRatio == CameraUtil.RATIO_16_9) {
-            int l = size.x > size.y ? size.x : size.y;
-            int tm = mActivity.getResources().getDimensionPixelSize(R.dimen.preview_top_margin);
-            int bm = mActivity.getResources().getDimensionPixelSize(R.dimen.preview_bottom_margin);
-            mTopMargin = l / 4 * tm / (tm + bm);
-            mBottomMargin = l / 4 - mTopMargin;
-        }
+        calculateMargins(size);
         mCameraControls.setMargins(mTopMargin, mBottomMargin);
+    }
+
+    private void calculateMargins(Point size) {
+        int l = size.x > size.y ? size.x : size.y;
+        int tm = mActivity.getResources().getDimensionPixelSize(R.dimen.preview_top_margin);
+        int bm = mActivity.getResources().getDimensionPixelSize(R.dimen.preview_bottom_margin);
+        mTopMargin = l / 4 * tm / (tm + bm);
+        mBottomMargin = l / 4 - mTopMargin;
     }
 
     public void setDownFactor(int factor) {
@@ -336,6 +349,7 @@ public class PhotoUI implements PieListener,
         FrameLayout.LayoutParams lp;
         float scaledTextureWidth, scaledTextureHeight;
         int rotation = CameraUtil.getDisplayRotation(mActivity);
+        mScreenRatio = CameraUtil.determineRatio(ratio);
         if (mScreenRatio == CameraUtil.RATIO_16_9
                 && CameraUtil.determinCloseRatio(ratio) == CameraUtil.RATIO_4_3) {
             int l = (mTopMargin + mBottomMargin) * 4;
@@ -369,7 +383,8 @@ public class PhotoUI implements PieListener,
         } else {
             float width = mMaxPreviewWidth, height = mMaxPreviewHeight;
             if (width == 0 || height == 0) return;
-
+            if(mScreenRatio == CameraUtil.RATIO_4_3)
+                height -=  (mTopMargin + mBottomMargin);
             if (mOrientationResize) {
                 scaledTextureWidth = height * mAspectRatio;
                 if (scaledTextureWidth > width) {
@@ -400,7 +415,6 @@ public class PhotoUI implements PieListener,
 
             Log.v(TAG, "setTransformMatrix: scaledTextureWidth = " + scaledTextureWidth
                     + ", scaledTextureHeight = " + scaledTextureHeight);
-
             if (((rotation == 0 || rotation == 180) && scaledTextureWidth > scaledTextureHeight)
                     || ((rotation == 90 || rotation == 270)
                         && scaledTextureWidth < scaledTextureHeight)) {
@@ -409,6 +423,10 @@ public class PhotoUI implements PieListener,
             } else {
                 lp = new FrameLayout.LayoutParams((int) scaledTextureWidth,
                         (int) scaledTextureHeight, Gravity.CENTER);
+            }
+            if(mScreenRatio == CameraUtil.RATIO_4_3) {
+                lp.gravity = Gravity.CENTER_HORIZONTAL | Gravity.TOP;
+                lp.setMargins(0, mTopMargin, 0, mBottomMargin);
             }
         }
 
@@ -1094,6 +1112,32 @@ public class PhotoUI implements PieListener,
         if (mCountDownView == null) initializeCountDown();
         mCountDownView.startCountDown(sec, playSound);
         hideUIWhileCountDown();
+    }
+
+    public void startSelfieFlash() {
+        if(mSelfieView == null)
+            mSelfieView = (SelfieFlashView) (mRootView.findViewById(R.id.selfie_flash));
+        mSelfieView.bringToFront();
+        mSelfieView.open();
+        mScreenBrightness = setScreenBrightness(1F);
+    }
+
+    public void stopSelfieFlash() {
+        if(mSelfieView == null)
+            mSelfieView = (SelfieFlashView) (mRootView.findViewById(R.id.selfie_flash));
+        mSelfieView.close();
+        if(mScreenBrightness != 0.0f)
+            setScreenBrightness(mScreenBrightness);
+    }
+
+    private float setScreenBrightness(float brightness) {
+        float originalBrightness;
+        Window window = mActivity.getWindow();
+        WindowManager.LayoutParams layout = window.getAttributes();
+        originalBrightness = layout.screenBrightness;
+        layout.screenBrightness = brightness;
+        window.setAttributes(layout);
+        return originalBrightness;
     }
 
     public void showPreferencesToast() {
